@@ -1,10 +1,12 @@
-"""Operator dashboard — realtime-ish via Streamlit auto-refresh."""
+"""Operator dashboard — Redis Streams + heartbeat (matches agent-mesh-execution)."""
 
 import os
 import time
 
 import redis
 import streamlit as st
+
+STREAM_KEY = os.getenv("STREAM_KEY", "stream:approved:intents")
 
 st.set_page_config(page_title="Agent Mesh", layout="wide")
 st.title("Agent Mesh — control plane")
@@ -44,13 +46,18 @@ try:
     else:
         st.caption("No value at execution:heartbeat")
 
-    intents_key = "approved:intents"
-    if r.exists(intents_key):
-        st.metric("approved:intents", r.llen(intents_key), help="LLEN")
+    if r.exists(STREAM_KEY):
+        st.metric("Stream length (XLEN)", r.xlen(STREAM_KEY), help=STREAM_KEY)
+    else:
+        st.caption(f"No stream `{STREAM_KEY}` yet (publisher will create on first XADD)")
+
+    legacy = "approved:intents"
+    if r.exists(legacy):
+        st.metric("Legacy list LLEN", r.llen(legacy), help="deprecated; use Streams")
 
 except Exception as e:
     st.error(f"Redis: {e}")
 
-st.caption("Refresh: rerun the app (⋮ menu → Rerun) or enable auto-refresh if configured.")
+st.caption("Refresh: Rerun from the ⋮ menu. For auto-refresh, use Streamlit `run_on_save` or an external reverse proxy.")
 
-st.info("Add Postgres queries for trades, signals, and heartbeats. See agent-mesh-infra for wiring.")
+st.info("Postgres metrics: connect read-only from Grafana or extend this app with `psycopg2`.")
