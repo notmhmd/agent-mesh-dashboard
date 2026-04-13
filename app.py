@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import timedelta
 
@@ -93,8 +94,50 @@ def panel_postgres() -> None:
         st.warning(f"Postgres: {e}")
 
 
+@st.fragment(run_every=timedelta(seconds=10))
+def panel_llm() -> None:
+    st.subheader("LLM strategist (LiteLLM — not on execution hot path)")
+    redis_host = os.getenv("REDIS_HOST", "localhost")
+    try:
+        r = redis.Redis(host=redis_host, port=6379, decode_responses=True)
+        raw = r.get("strategist:latest")
+        if raw:
+            try:
+                st.json(json.loads(raw))
+            except json.JSONDecodeError:
+                st.code(raw)
+        else:
+            st.caption("No `strategist:latest` yet — run `docker compose --profile llm up -d strategist` with API keys.")
+    except Exception as e:
+        st.warning(f"Redis LLM cache: {e}")
+
+    conn = _pg_conn()
+    if conn is None:
+        return
+    try:
+        with conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT id, regime, sentiment_score, regime_multiplier, left(summary, 200) AS summary,
+                           source, created_at
+                    FROM market_intelligence
+                    ORDER BY id DESC
+                    LIMIT 5
+                    """
+                )
+                rows = cur.fetchall()
+        if rows:
+            st.dataframe(rows, hide_index=True, use_container_width=True)
+        else:
+            st.caption("No rows in market_intelligence yet.")
+    except Exception as e:
+        st.caption(f"market_intelligence: {e}")
+
+
 panel_redis()
 panel_postgres()
+panel_llm()
 
 st.caption(
     "Metrics: scrape execution service `:9090/metrics` (Prometheus). "
